@@ -1,0 +1,105 @@
+---
+title: "EstherYang&AdamTrosin_HW6"
+author: "Adam Trosin & Esther Yang"
+date: "April 4, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Insert text here introducing Kickstarter and our business question - can we predict the success or failure of a project?
+
+
+# Data Cleaning 
+```{r}
+#read in data
+ks_raw <- read.csv("ks-projects-201801.csv")
+
+#look at structure of data and remove unnecessary columns
+str(ks_raw)
+ks <- ks_raw
+ks$ID <- NULL
+ks$name <- NULL
+
+#cleaning up columns with dates and times 
+library(lubridate)
+
+ks$launched <- ymd_hms(as.character(ks$launched))
+ks$deadline <- ymd(as.character(ks$deadline))
+
+#remove rows where the outcome is neither "successful" nor "failed"
+library(dplyr)
+ks <- filter(ks, ks$state == "successful" | ks$state == "failed")
+
+#set NAs to mean value; NAs only found in "usd.pledged" column
+colnames(ks)[apply(ks, 2, anyNA)]
+ks$usd.pledged[is.na(ks$usd.pledged)] <- mean(ks$usd.pledged, na.rm = TRUE)
+
+#create a column to show what proportion of the goal was met
+options(scipen = 999) #turn off sci-notation
+ks$proportion_earned <- ks$pledged/ks$goal
+
+#normalizing any numeric columns 
+library(magrittr)
+ks$goal %<>% scale()
+ks$pledged %<>% scale()
+ks$backers %<>% scale()
+ks$usd.pledged %<>% scale()
+ks$usd_pledged_real %<>% scale()
+ks$usd_goal_real %<>% scale()
+
+#create a column to show the duration of the campaign
+ks$project_duration <- ks$deadline - date(ks$launched)
+
+#split data into train and test 
+
+```
+# Initial Data Exploration
+```{r}
+#how many projects fall under each outcome category (successful / failed)
+tapply(ks$state, ks$state, length)
+```
+```{r}
+
+#most popular categories
+tapply(ks$main_category, ks$main_category, length)
+which.max(tapply(ks$main_category, ks$main_category, length))
+#come back and find out how to get top 5 categories
+```
+```{r}
+
+
+
+#distribution of projects in different countries
+tapply(ks$country, ks$country, length)
+which.max(tapply(ks$country, ks$country, length))
+which.min(tapply(ks$country, ks$country, length))
+```
+```{r}
+#what percent of projects meet their goal
+#proportion of successful projects
+nrow(ks[ks$state == "successful",]) / nrow(ks[ks$state == "successful" | ks$state == "failed",])
+#proportion of failed projects
+nrow(ks[ks$state == "failed",]) / nrow(ks[ks$state == "successful" | ks$state == "failed",])
+
+#durations for successful projects versus that of failed projects
+#find difference in dates 
+
+#goals for successful projects versus that of failed projects
+tapply(ks$goal, ks$state, mean)
+
+#number of backers for successful projects versus that of failed projects
+
+#see whether certain project categories are more successful
+
+```
+
+
+# Linear Regression 
+```{r}
+library(lmtest)
+
+logit.model <- glm(state ~ category + main_category + project_duration + goal + country + currency, data = ks, family=binomial)
+```
