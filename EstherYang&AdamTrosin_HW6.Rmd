@@ -1,19 +1,32 @@
 ---
-title: "EstherYang&AdamTrosin_HW6"
+title: "Homework 6"
 author: "Adam Trosin & Esther Yang"
 date: "April 4, 2018"
-output: html_document
+output: 
+  html_document:
+    toc_float: yes
+    code_folding: hide 
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-Insert text here introducing Kickstarter and our business question - can we predict the success or failure of a project?
+### Kickstarter Campaigns Analysis
+## Adam Trosin & Esther Yang
+
+# Introduction: 
+Kickstarter is one of the most widely used crowdfunding platforms on the Internet. Through this platform, people are able to turn ideas into a reality - so long as they reach their funding goals. 
+
+The process of a Kickstarter campaign is as follows: start a campaign with an idea, set a funding goal, and set a deadline to meet that goal. It is important to note that if this goal is not met, the campaign is categorized as a "failed" campaign and does not receive any of the funding, regardless of whether or not there are any existing pledges. 
+
+In this analysis, we want to pinpoint any factors that may predict a campaign's success and use this to do predictive analysis. This will give potential campaigners an idea of how to make their campaigns more likely to succeed and even predict whether or not their campaigns will be successful. 
 
 
 # Data Cleaning 
-```{r}
+When we first looked at the data, we noticed some columns that were unnecessary for our analysis purposes, such as the ID and name of the project. We removed these columns and also changed others to appropriate data types. In addition to that, we normalized all numeric columns and finally, we split the total dataset into train and test sets. 
+
+```{r, cache = TRUE}
 #read in data
 ks_raw <- read.csv("ks-projects-201801.csv")
 
@@ -25,7 +38,6 @@ ks$name <- NULL
 
 #cleaning up columns with dates and times 
 library(lubridate)
-
 ks$launched <- ymd_hms(as.character(ks$launched))
 ks$deadline <- ymd(as.character(ks$deadline))
 
@@ -33,13 +45,20 @@ ks$deadline <- ymd(as.character(ks$deadline))
 library(dplyr)
 ks <- filter(ks, ks$state == "successful" | ks$state == "failed")
 
+#change the response column to 0 and 1 
+ks$state <- as.character(ks$state)
+ks[ks$state == "successful", "state"] <- "1"
+ks[ks$state == "failed", "state"] <- "0"
+ks$state <- as.integer(ks$state)
+
+ks$state_factor <- as.factor(ks$state)
+
 #set NAs to mean value; NAs only found in "usd.pledged" column
 colnames(ks)[apply(ks, 2, anyNA)]
 ks$usd.pledged[is.na(ks$usd.pledged)] <- mean(ks$usd.pledged, na.rm = TRUE)
 
-#create a column to show what proportion of the goal was met
-options(scipen = 999) #turn off sci-notation
-ks$proportion_earned <- ks$pledged/ks$goal
+#variables for goals per outcome
+ks_goal_nonNormal <- ks$goal
 
 #normalizing any numeric columns 
 library(magrittr)
@@ -54,52 +73,241 @@ ks$usd_goal_real %<>% scale()
 ks$project_duration <- ks$deadline - date(ks$launched)
 
 #split data into train and test 
+set.seed(123)
+ks_train_index <- sample(seq_len(nrow(ks)), size = floor(0.75*nrow(ks)))
 
+ks_train <- ks[ks_train_index, ]
+ks_test <- ks[-ks_train_index, ]
+
+#train and test sets that CONTAIN the outcome variable 
+ks_train_new <- ks[ks_train_index,]
+ks_test_new <- ks[-ks_train_index, ]
+
+ks_test_labels <- ks_test$state
+ks_train_labels <- ks_train$state
+
+ks_test$state <- NULL
+ks_train$state <- NULL
 ```
+
 # Initial Data Exploration
-```{r}
-#how many projects fall under each outcome category (successful / failed)
-tapply(ks$state, ks$state, length)
+Once we cleaned up the data, we wanted to do a deeper dive into the different variables in the dataset. We were interested to compare things like duration for successful versus failed projects, see which categories were the most popular, determine the country with the most projects started, etc.
+
+## Proportion of Successful versus Failed Campaigns 
+First let us look at the proportion of successful campaigns to total campaigns - we calculated this to be 0.4039. Note that in our dataset, 1 indicates a successful campaign and 0 indicates a failed campaign. 
+
+```{r, cache = TRUE}
+#proportion of successful projects
+nrow(ks[ks$state == "1",]) / nrow(ks[ks$state == "1" | ks$state == "0",])
 ```
-```{r}
 
-#most popular categories
-tapply(ks$main_category, ks$main_category, length)
-which.max(tapply(ks$main_category, ks$main_category, length))
-#come back and find out how to get top 5 categories
+Now let us look at the proportion of failed campaigns to total campaigns - this came out to be 0.5961. So in our dataset, there is a slightly higher proportion of failed campaigns compared to successful campaigns. 
+
+```{r, cache = TRUE}
+#proportion of failed projects
+nrow(ks[ks$state == "0",]) / nrow(ks[ks$state == "1" | ks$state == "0",])
 ```
-```{r}
 
+## Durations for Each Outcome
+To see how campaign durations differed for each outcome, we created a jitter plot. Based on the densities of each column, we can see that on average, durations do not seem to vary drastically for either outcome. Both outcomes appear to cap off the duration at about 90 days. Interestingly enough, there are high concentrations of projects from 0-65 days and at the cap; however, there is a large gap between those two periods. 
 
+```{r, cache = TRUE}
+library(ggplot2)
+#jitter plot to show durations for different outcomes 
+ggplot(data =ks, aes(x=state_factor, y=project_duration)) + geom_jitter(alpha = 0.15, aes(colour = state_factor)) + ylab("Duration in Days") + xlab("Outcome") + guides(color=guide_legend(title="Outcome"))
+```
 
+## Most Popular Categories for Campaigns 
+We were also interested in seeing the distribution of campaigns by category. Our dataset contains 14 main categories, which are listed in the output below. The most popular of these is "Film & Video", which had 56527 campaigns. 
+Other notably popular categories were "Music", "Publishing", and "Games" which had 45949, 35445, and 28521 campaigns, respectively. 
+
+```{r, cache = TRUE}
+#show how many projects are under each category; which are the most popular?
+category_dist <- tapply(ks$main_category, ks$main_category, length)
+category_dist
+which.max(category_dist)
+
+#category versus count of campaigns 
+barplot(table(ks$main_category), cex.names=0.4, xlab="Category", ylab = "Number of Campaigns", col = "light blue")
+```
+
+Given that "Film & Video" was the most popular category amongst this dataset's campaigns, we hypothesized that there may be a relationship between the success of a campaign and the category in which it falls. Once we graphed the success rates for each category of campaign, we saw that "Film & Video" actually did not have the highest success rate. "Dance" and "Theater" had two of the highest success rates, despite the fact that they had a smaller number of campaigns. 
+
+```{r, cache = TRUE}
+#create data frame of success rates for each category
+success_by_category <- as.data.frame(aggregate(state ~ main_category, ks, mean))
+ggplot(data=success_by_category, aes(x=main_category, y=state)) + geom_col(fill = "light blue") + xlab("Main Category") + ylab("Success Rate") + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+## Goal Met
+We were also interested to see the proportion of the goal earned by campaigns in each category. As you can see from the output, some categories on average have exceeded their original goal (e.g. Technology, Theater, Film & Video) whereas others on average fell short of the funding goal (e.g. Games). Technology had the highest proportion of funding met, which seems to make sense since an online audience may be more interested in projects under this area. 
+
+```{r, cache = TRUE}
+#create a column to show what proportion of the goal was met
+options(scipen = 999) #turn off sci-notation
+ks$proportion_earned <- ks$pledged/ks$goal
+
+goal_per_category <- tapply(ks$proportion_earned, ks$main_category, mean)
+goal_per_category
+```
+
+## Campaigns in Different Countries 
+Since Kickstarter is a worldwide platform, campaigns are started across different countries - in this dataset, campaigns were started in 1 of 23 countries, which are listed in the output below. The country with the most campaigns was the US with 261,360 campaigns and the one with the least was Japan with 23 campaigns. 
+
+```{r, cache = TRUE}
 #distribution of projects in different countries
-tapply(ks$country, ks$country, length)
+countries <- tapply(ks$country, ks$country, length)
+countries
+
 which.max(tapply(ks$country, ks$country, length))
 which.min(tapply(ks$country, ks$country, length))
 ```
-```{r}
-#what percent of projects meet their goal
-#proportion of successful projects
-nrow(ks[ks$state == "successful",]) / nrow(ks[ks$state == "successful" | ks$state == "failed",])
-#proportion of failed projects
-nrow(ks[ks$state == "failed",]) / nrow(ks[ks$state == "successful" | ks$state == "failed",])
 
-#durations for successful projects versus that of failed projects
-#find difference in dates 
+## How do Goals differ for each Outcome?
+On average, it appears that the initial goals set are lower for successful projects than that of failed projects. This could be because people are more willing to fund a campaign that has a more attainable or realistic goal. 
 
+```{r, cache = TRUE}
 #goals for successful projects versus that of failed projects
-tapply(ks$goal, ks$state, mean)
-
-#number of backers for successful projects versus that of failed projects
-
-#see whether certain project categories are more successful
-
+tapply(ks_goal_nonNormal, ks$state, mean)
 ```
 
 
-# Linear Regression 
-```{r}
+# Logistic Regression 
+To determine the factors that have the most impact on a campaign's success, we ran a logistic regression.
+
+In our first model, we included all of the columns that could potentially determine the outcome of a campaign: category, main category, the project's duration, goal, country, and currency. We found that certain main categories were statistically significant such as "Dance", "Film & Video", and "Food". Some countries were also statistically significant in this model.
+
+In our second model, we removed the columns category and currency, for the sake of simplicity. We found that this increased the number of main categories and countries that were statistically significant. One thing to note is that in both model 1 and 2, project duration and goal were statistically significant in their effects on the outcome of the campaign. 
+
+Lastly, we ran a model of outcome regressed only on currency. Interestingly, but not surprisingly, we saw that currencies of major countries (US, England, Eurozone countries, Singapore, etc.) were statistically significant, whereas the currency of a country like Norway was not significant. A majority of the currencies that were statistically significant had positive coefficients, which means that a campaign in that currency improved the odds of success. 
+
+```{r, cache = TRUE}
 library(lmtest)
 
-logit.model <- glm(state ~ category + main_category + project_duration + goal + country + currency, data = ks, family=binomial)
+#model 1
+logit.model <- glm(state ~ category + main_category + project_duration + goal + country + currency, data = ks, family = binomial)
+summary(logit.model)
+
+#model 2
+logit.model2 <- glm(state ~ main_category + project_duration + goal + country, data = ks, family = binomial) 
+summary(logit.model2)
+
+#model 3
+logit.model3 <- glm(state ~ currency, data = ks, family = binomial)
+summary(logit.model3)
 ```
+
+## Predictions Using Logistic Regression
+Using the logistic regression models we created, we wanted to apply them to our train data set and see how accurately the model could make predictions of success or failure. Once we ran the regression, we created a data frame that contained the predictions and compared these values to the actual outcomes from our test data set. 
+
+### Model 1
+We used our first logistic regression model to see how well we could predict the outcome of a campaign - our cross table shows where we were accurate and also our false positive/negative results. With this model we obtained an accuracy rate of 66%. 
+
+```{r, cache = TRUE}
+#using model 1 for predictions 
+logit.model_predictions <- glm(state ~ category + main_category + project_duration + goal + country + currency, data = ks_train_new, family = binomial)
+summary(logit.model_predictions)
+
+#create a data frame with predicted probabilities 
+probabilities <- predict.glm(logit.model_predictions, ks_test_new, type = "response")
+predictions <- as.data.frame(probabilities)
+predictions$outcome <- NA
+
+#create a column named "outcome" that is either 1 for a success or 0 for failure 
+predictions[predictions$probabilities >= 0.5, "outcome"] <- 1
+predictions[predictions$probabilities < 0.5, "outcome"] <- 0
+
+#cross table to show accurate predictions and false positive/negative outcomes 
+library(gmodels)
+CrossTable(x = ks_test_labels, y = predictions$outcome, prop.chisq = FALSE)
+
+#confusion matrix 
+library(caret)
+confusionMatrix(predictions$outcome, ks_test_labels, positive = "1")
+```
+
+### Model 2
+To see if our accuracy level could be improved upon, we ran our second model on our train data set. Though it did not improve, it stayed relatively the same at 64%. 
+
+```{r, cache = TRUE}
+#using model 2 for predictions
+logit.model2_predictions <- glm(state ~ main_category + project_duration + goal + country, data = ks_train_new, family = binomial) 
+summary(logit.model2_predictions)
+
+#create a data frame with predicted probabilities
+probabilities <- predict.glm(logit.model2_predictions, ks_test_new, type = "response")
+predictions <- as.data.frame(probabilities)
+predictions$outcome <- NA
+
+#create a new column named "outcome"; 1 is a success, 0 is a failure 
+predictions[predictions$probabilities >= 0.5, "outcome"] <- 1
+predictions[predictions$probabilities < 0.5, "outcome"] <- 0
+
+#cross table
+CrossTable(x = ks_test_labels, y = predictions$outcome, prop.chisq = FALSE)
+
+#confusion matrix
+confusionMatrix(predictions$outcome, ks_test_labels, positive = "1")
+```
+
+# KNN model
+
+```{r, cache = TRUE}
+ks_train <-  as.data.frame(model.matrix(~.-1, data = ks_train))
+ks_test <-  as.data.frame(model.matrix(~.-1, data = ks_test))
+
+library(class)
+#testing the accuracy at different values of k
+k_seq <- seq(from = 1, to = 35, by = 2)
+accuracy.vector <- c()
+for(i in 1:18){
+  knn_predictions <- knn(train=ks_train, test=ks_test, cl = ks_train_labels, k = k_seq[i])
+  mat <-  confusionMatrix(knn_predictions, ks_test_labels, positive = "1")
+  overall <- mat$overall
+  overall.accuracy <-  overall["Accuracy"]
+  accuracy.vector <- c(accuracy.vector, overall.accuracy)
+}
+
+#plot k against accuracy
+ggplot(data = NULL, aes(x= k_seq, y = accuracy.vector)) + geom_smooth(se = FALSE) +labs(x= "k", y = "Accuracy")
+
+#rerun the chosen knn value here
+kNN_predictions <-knn(train=ks_train, test=ks_test, cl = ks_train_labels, k = 10)
+
+#cross table
+CrossTable(x = ks_test_labels, y = kNN_predictions, prop.chisq = FALSE)
+
+#confusion matrix
+confusionMatrix(kNN_predictions, ks_test_labels, positive = "yes")
+```
+
+# SVM 
+
+```{r, cache = TRUE}
+library(kernlab)
+#simple linear SVM
+outcome_classifier <- ksvm(state ~., data = ks_train_new, kernel = "vanilladot")
+
+#basic info
+outcome_classifier
+
+#evaluate model performance
+outcome_predictions <- predict(outcome_classifier, ks_test_new)
+
+head(outcome_predictions)
+
+table(outcome_predictions, ks_test_new$state)
+
+
+# look only at agreement vs. non-agreement
+# construct a vector of TRUE/FALSE indicating correct/incorrect predictions
+agreement <- outcome_predictions == ks_test_new$state
+table(agreement)
+prop.table(table(agreement))
+```
+
+# Conclusion
+
+## Which model is the best?
+
+## Further exploration?
